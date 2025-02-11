@@ -13,7 +13,7 @@ const app = express();
 dbConnect();
 app.use(
   cors({
-    origin: ["http://localhost:5173","https://movie-dash-front.vercel.app"] 
+    origin: "http://localhost:5173","https://movie-dash-front.vercel.app" 
     credentials: true,
   })
 );
