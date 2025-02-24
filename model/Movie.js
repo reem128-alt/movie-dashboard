@@ -49,7 +49,9 @@ const movieSchema = new mongoose.Schema({
     required: true,
     min: 1888,
     max: new Date().getFullYear() + 5
-  }
+  },
+  views:{
+    type:Number}
 }, {
   timestamps: true
 });
