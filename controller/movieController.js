@@ -1,23 +1,20 @@
-const Movie = require('../model/Movie');
-const fs = require('fs');
-const path = require('path');
+const Movie = require("../model/Movie");
+const {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+} = require("../middleware/cloudinary");
 
-// Helper function to handle file upload
-const handleFileUpload = (file, directory) => {
+// Helper function to handle file upload to Cloudinary
+const handleFileUpload = async (file, folder) => {
   if (!file) return null;
-  
-  const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-  const filename = uniqueSuffix + path.extname(file.originalname);
-  const filepath = path.join(__dirname, '..', 'uploads', filename);
-  
-  // Create uploads directory if it doesn't exist
-  const uploadsDir = path.join(__dirname, '..', 'uploads');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+
+  try {
+    const imageUrl = await uploadToCloudinary(file.buffer, folder);
+    return imageUrl;
+  } catch (error) {
+    console.error("Error uploading to Cloudinary:", error);
+    throw new Error("Failed to upload image");
   }
-  
-  fs.writeFileSync(filepath, file.buffer);
-  return `/uploads/${filename}`; // Return URL path instead of filename
 };
 
 // Get all movies
@@ -35,7 +32,7 @@ exports.getMovie = async (req, res) => {
   try {
     const movie = await Movie.findById(req.params.id);
     if (!movie) {
-      return res.status(404).json({ message: 'Movie not found' });
+      return res.status(404).json({ message: "Movie not found" });
     }
     res.json(movie);
   } catch (error) {
@@ -47,19 +44,30 @@ exports.getMovie = async (req, res) => {
 exports.createMovie = async (req, res) => {
   try {
     const movieData = JSON.parse(req.body.movieData);
-    
+
     // Handle poster upload
     if (req.files && req.files.poster) {
-      const posterFilename = handleFileUpload(req.files.poster[0], 'uploads/posters');
-      movieData.poster = posterFilename;
+      const posterUrl = await handleFileUpload(
+        req.files.poster[0],
+        "movie-dashboard/posters"
+      );
+      movieData.poster = posterUrl;
     }
 
     // Handle actor images
     if (movieData.actors && req.files && req.files.actorImages) {
-      movieData.actors = movieData.actors.map((actor, index) => ({
-        ...actor,
-        image: handleFileUpload(req.files.actorImages[index], 'uploads/actors')
-      }));
+      movieData.actors = await Promise.all(
+        movieData.actors.map(async (actor, index) => {
+          const imageUrl = await handleFileUpload(
+            req.files.actorImages[index],
+            "movie-dashboard/actors"
+          );
+          return {
+            ...actor,
+            image: imageUrl,
+          };
+        })
+      );
     }
 
     const movie = new Movie(movieData);
@@ -74,11 +82,14 @@ exports.createMovie = async (req, res) => {
 exports.updateMovie = async (req, res) => {
   try {
     const movieData = JSON.parse(req.body.movieData);
-    
+
     // Handle poster upload if new poster is provided
     if (req.files && req.files.poster) {
-      const posterFilename = handleFileUpload(req.files.poster[0], 'uploads/posters');
-      movieData.poster = posterFilename;
+      const posterUrl = await handleFileUpload(
+        req.files.poster[0],
+        "movie-dashboard/posters"
+      );
+      movieData.poster = posterUrl;
     }
 
     // Handle actor images if new images are provided
@@ -86,26 +97,28 @@ exports.updateMovie = async (req, res) => {
       // Get existing movie to preserve actor IDs
       const existingMovie = await Movie.findById(req.params.id);
       if (!existingMovie) {
-        return res.status(404).json({ message: 'Movie not found' });
+        return res.status(404).json({ message: "Movie not found" });
       }
 
-      movieData.actors = movieData.actors.map((actor, index) => {
-        // Get the actor image file if it exists
-        const actorImageFile = req.files?.actorImages?.[index];
-        
-        // If there's a new image file, handle the upload
-        const image = actorImageFile 
-          ? handleFileUpload(actorImageFile, 'uploads/actors')
-          : actor.image;
+      movieData.actors = await Promise.all(
+        movieData.actors.map(async (actor, index) => {
+          // Get the actor image file if it exists
+          const actorImageFile = req.files?.actorImages?.[index];
 
-        // Preserve the actor's ID if it exists in the database
-        const existingActor = existingMovie.actors[index];
-        return {
-          _id: existingActor?._id, // Preserve existing ID if available
-          name: actor.name,
-          image: image
-        };
-      });
+          // If there's a new image file, handle the upload
+          const image = actorImageFile
+            ? await handleFileUpload(actorImageFile, "movie-dashboard/actors")
+            : actor.image;
+
+          // Preserve the actor's ID if it exists in the database
+          const existingActor = existingMovie.actors[index];
+          return {
+            _id: existingActor?._id, // Preserve existing ID if available
+            name: actor.name,
+            image: image,
+          };
+        })
+      );
     }
 
     const updatedMovie = await Movie.findByIdAndUpdate(
@@ -115,7 +128,7 @@ exports.updateMovie = async (req, res) => {
     );
 
     if (!updatedMovie) {
-      return res.status(404).json({ message: 'Movie not found' });
+      return res.status(404).json({ message: "Movie not found" });
     }
 
     res.json(updatedMovie);
@@ -128,32 +141,41 @@ exports.updateMovie = async (req, res) => {
 exports.deleteMovie = async (req, res) => {
   try {
     const movie = await Movie.findById(req.params.id);
-    
+
     if (!movie) {
-      return res.status(404).json({ message: 'Movie not found' });
+      return res.status(404).json({ message: "Movie not found" });
     }
 
-    // Delete associated files
+    // Delete associated files from Cloudinary
     if (movie.poster) {
-      const posterPath = path.join(__dirname, '..', 'uploads', movie.poster.replace('/uploads/', ''));
-      if (fs.existsSync(posterPath)) {
-        fs.unlinkSync(posterPath);
+      try {
+        await deleteFromCloudinary(movie.poster);
+      } catch (error) {
+        console.error("Error deleting poster from Cloudinary:", error);
+        // Continue with deletion even if Cloudinary deletion fails
       }
     }
 
     if (movie.actors) {
-      movie.actors.forEach(actor => {
-        if (actor.image) {
-          const actorImagePath = path.join(__dirname, '..', 'uploads', actor.image.replace('/uploads/', ''));
-          if (fs.existsSync(actorImagePath)) {
-            fs.unlinkSync(actorImagePath);
+      await Promise.all(
+        movie.actors.map(async (actor) => {
+          if (actor.image) {
+            try {
+              await deleteFromCloudinary(actor.image);
+            } catch (error) {
+              console.error(
+                "Error deleting actor image from Cloudinary:",
+                error
+              );
+              // Continue with deletion even if Cloudinary deletion fails
+            }
           }
-        }
-      });
+        })
+      );
     }
 
     await Movie.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Movie deleted successfully' });
+    res.json({ message: "Movie deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

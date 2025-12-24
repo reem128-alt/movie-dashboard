@@ -29,11 +29,11 @@ const signup = async (req, res, next) => {
     });
     const accessToken = jwt.sign(
       {
-        id: existingUser.id,
-        username: existingUser.username,
-        admin: existingUser.admin,
-        email:existingUser.email,
-        profilePicture:existingUser.profilePicture
+        id: user.id,
+        username: user.username,
+        admin: user.admin,
+        email: user.email,
+        profilePicture: user.profilePicture
       },
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: "1h" }

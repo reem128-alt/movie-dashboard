@@ -9,6 +9,14 @@ const cors = require("cors");
 
 const cookieParser = require("cookie-parser");
 
+// Cloudinary configuration
+const cloudinary = require("cloudinary").v2;
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 const app = express();
 dbConnect();
 app.use(
@@ -19,7 +27,7 @@ app.use(
 );
 
 // Serve static files from uploads directory
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// app.use("/uploads", express.static(path.join(__dirname, "uploads"))); // Commented out since using Cloudinary
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
